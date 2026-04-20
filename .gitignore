@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.env
+*.env.local
+
+# Docker volumes (local dev bind mounts, if any)
+data/
+
+# Design principle folder — source only, not tracked
+Design Principle/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+*.tsbuildinfo

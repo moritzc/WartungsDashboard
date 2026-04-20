@@ -1,0 +1,216 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  displayName  String?
+  role         String   @default("VIEWER") // ADMIN | VIEWER
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Session {
+  id        String   @id
+  data      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ─── Customers & Devices ────────────────────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  devices            Device[]
+  monthlySheets      MonthlySheet[]
+  thresholdOverrides ThresholdOverride[]
+}
+
+model Device {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  name      String
+  hostname  String?
+  category  String   @default("SERVER") // SERVER | NAS | FIREWALL | UPS | CUSTOM
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customFields       CustomFieldDef[] @relation("DeviceCustomFields")
+  thresholdOverrides ThresholdOverride[]
+  deviceRecords      DeviceRecord[]
+}
+
+// ─── Monthly Sheets ──────────────────────────────────────────────────────────
+
+model MonthlySheet {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  year   Int
+  month  Int    // 1–12
+  status String @default("DRAFT") // DRAFT | COMPLETE
+
+  technicianName  String?
+  maintenanceDate String? // ISO date string "YYYY-MM-DD"
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deviceRecords DeviceRecord[]
+
+  @@unique([customerId, year, month])
+}
+
+// ─── Device Records (one per device per sheet) ───────────────────────────────
+
+model DeviceRecord {
+  id      String       @id @default(cuid())
+  sheetId String
+  sheet   MonthlySheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  deviceId String
+  device   Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  // Standard fields for Server category (nullable = not applicable)
+  uptimeDays     Int?
+  diskFreeGB     Float?
+  eventlogsOk    Boolean?
+  lastUpdateDate String?  // ISO date string "YYYY-MM-DD"
+
+  // Computed status
+  overallStatus String @default("OK") // OK | WARNING | ERROR
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customValues CustomFieldValue[]
+  comments     Comment[]
+
+  @@unique([sheetId, deviceId])
+}
+
+// ─── Custom Fields ───────────────────────────────────────────────────────────
+
+model CustomFieldDef {
+  id       String  @id @default(cuid())
+
+  // When deviceId is null, restrict to a device category
+  category String? // SERVER | NAS | FIREWALL | UPS | CUSTOM | null = all
+
+  name          String
+  unit          String? // "GB", "Days", "%", etc.
+  dataType      String  @default("TEXT") // TEXT | NUMBER | BOOLEAN | DATE | SELECT
+  selectOptions String? // JSON: ["Option A", "Option B"]
+  warnCondition String? // JSON: { "lt": 50 } | { "gt": 90 } | { "olderThanDays": 40 }
+  isRequired    Boolean @default(false)
+  sortOrder     Int     @default(0)
+  isActive      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  devices Device[] @relation("DeviceCustomFields")
+  values CustomFieldValue[]
+}
+
+model CustomFieldValue {
+  id         String         @id @default(cuid())
+  recordId   String
+  record     DeviceRecord   @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  fieldDefId String
+  fieldDef   CustomFieldDef @relation(fields: [fieldDefId], references: [id], onDelete: Cascade)
+
+  value String // stored as string, typed at read time
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([recordId, fieldDefId])
+}
+
+// ─── Thresholds ──────────────────────────────────────────────────────────────
+
+// Global defaults — one record per tracked field
+model GlobalThreshold {
+  id    String @id @default(cuid())
+  field String @unique // "diskFreeGB" | "lastUpdateDate" | ...
+
+  // For numeric fields
+  warnBelow  Float?
+  warnAbove  Float?
+  errorBelow Float?
+  errorAbove Float?
+
+  // For date fields (days since last occurrence)
+  warnOlderThanDays  Int?
+  errorOlderThanDays Int?
+
+  updatedAt DateTime @updatedAt
+}
+
+// Per-customer or per-device overrides
+model ThresholdOverride {
+  id String @id @default(cuid())
+
+  // Exactly one of these should be set
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  deviceId String?
+  device   Device? @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  field String // "diskFreeGB" | "lastUpdateDate"
+
+  warnBelow  Float?
+  warnAbove  Float?
+  errorBelow Float?
+  errorAbove Float?
+
+  warnOlderThanDays  Int?
+  errorOlderThanDays Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Comments ────────────────────────────────────────────────────────────────
+
+model Comment {
+  id       String       @id @default(cuid())
+  recordId String
+  record   DeviceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  text     String
+  severity String  @default("INFO") // INFO | WARNING | CRITICAL
+  resolved Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
