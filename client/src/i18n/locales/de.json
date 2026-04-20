@@ -84,7 +84,12 @@
     "notOk": "Nicht OK",
     "saving": "Speichert...",
     "saved": "Gespeichert",
-    "saveError": "Fehler beim Speichern"
+    "saveError": "Fehler beim Speichern",
+    "technicianName": "Techniker",
+    "technicianPlaceholder": "Wer hat die Server geprüft?",
+    "maintenanceDate": "Wartungsdatum",
+    "comparePrev": "Vormonat vergleichen",
+    "hideComparePrev": "Vormonat ausblenden"
   },
   "comments": {
     "title": "Kommentare",
@@ -174,7 +179,13 @@
     "summary": "Zusammenfassung",
     "totalComments": "{{count}} Kommentar",
     "totalComments_other": "{{count}} Kommentare",
-    "criticalCount": "{{count}} kritisch"
+    "criticalCount": "{{count}} kritisch",
+    "periodA": "Periode A",
+    "periodB": "Periode B",
+    "compare": "Vergleichen",
+    "selectCustomerHint": "Bitte einen Kunden auswählen, um die Vergleichsansicht zu nutzen.",
+    "noData": "Keine Daten",
+    "noDeviceRecords": "Keine Gerätedaten für diesen Zeitraum gefunden."
   },
   "users": {
     "title": "Benutzerverwaltung",

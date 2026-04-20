@@ -108,15 +108,13 @@ const configRoutes: FastifyPluginAsync = async (app) => {
 
   // ── Global Custom Fields (category-level, not device-specific) ───────────────
 
-  // GET /api/config/custom-fields?category=...
+  // GET /api/config/custom-fields
   app.get('/custom-fields', async (req, reply) => {
     requireAuth(req, reply)
-    const { category } = req.query as { category?: string }
+    // categories is a JSON string now, so we return all fields.
+    // Callers filter by category client-side or use the 'categories' JSON field.
     const fields = await prisma.customFieldDef.findMany({
-      where: {
-        ...(category ? { category } : {}),
-      },
-      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }],
+      orderBy: [{ sortOrder: 'asc' }],
     })
     return reply.send(fields)
   })
@@ -124,14 +122,15 @@ const configRoutes: FastifyPluginAsync = async (app) => {
   // POST /api/config/custom-fields
   app.post('/custom-fields', async (req, reply) => {
     requireAdmin(req, reply)
-    const { category, name, unit, dataType, selectOptions, warnCondition, isRequired, sortOrder } =
+    const { categories, name, unit, dataType, selectOptions, warnCondition, errorCondition, isRequired, sortOrder } =
       req.body as {
-        category?: string
+        categories?: string[] | null
         name: string
         unit?: string
         dataType?: string
         selectOptions?: string[]
-        warnCondition?: Record<string, number>
+        warnCondition?: Record<string, number> | null
+        errorCondition?: Record<string, number> | null
         isRequired?: boolean
         sortOrder?: number
       }
@@ -139,12 +138,13 @@ const configRoutes: FastifyPluginAsync = async (app) => {
 
     const field = await prisma.customFieldDef.create({
       data: {
-        category: category || null,
+        categories: categories?.length ? JSON.stringify(categories) : null,
         name,
         unit: unit || null,
         dataType: dataType || 'TEXT',
         selectOptions: selectOptions ? JSON.stringify(selectOptions) : null,
         warnCondition: warnCondition ? JSON.stringify(warnCondition) : null,
+        errorCondition: errorCondition ? JSON.stringify(errorCondition) : null,
         isRequired: isRequired ?? false,
         sortOrder: sortOrder ?? 0,
         updatedAt: new Date(),
@@ -157,17 +157,18 @@ const configRoutes: FastifyPluginAsync = async (app) => {
   app.put('/custom-fields/:id', async (req, reply) => {
     requireAdmin(req, reply)
     const { id } = req.params as { id: string }
-    const { name, unit, dataType, selectOptions, warnCondition, isRequired, sortOrder, isActive, category } =
+    const { name, unit, dataType, selectOptions, warnCondition, errorCondition, isRequired, sortOrder, isActive, categories } =
       req.body as {
         name?: string
         unit?: string
         dataType?: string
         selectOptions?: string[]
         warnCondition?: Record<string, number> | null
+        errorCondition?: Record<string, number> | null
         isRequired?: boolean
         sortOrder?: number
         isActive?: boolean
-        category?: string
+        categories?: string[] | null
       }
     const data: Record<string, unknown> = { updatedAt: new Date() }
     if (name !== undefined) data.name = name
@@ -175,10 +176,11 @@ const configRoutes: FastifyPluginAsync = async (app) => {
     if (dataType !== undefined) data.dataType = dataType
     if (selectOptions !== undefined) data.selectOptions = JSON.stringify(selectOptions)
     if (warnCondition !== undefined) data.warnCondition = warnCondition ? JSON.stringify(warnCondition) : null
+    if (errorCondition !== undefined) data.errorCondition = errorCondition ? JSON.stringify(errorCondition) : null
     if (isRequired !== undefined) data.isRequired = isRequired
     if (sortOrder !== undefined) data.sortOrder = sortOrder
     if (isActive !== undefined) data.isActive = isActive
-    if (category !== undefined) data.category = category
+    if (categories !== undefined) data.categories = categories?.length ? JSON.stringify(categories) : null
 
     const field = await prisma.customFieldDef.update({ where: { id }, data })
     return reply.send(field)

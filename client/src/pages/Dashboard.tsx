@@ -23,7 +23,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    return (localStorage.getItem('dashboard_view_mode') as 'grid' | 'list') ?? 'grid'
+  })
+
+  const changeViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode)
+    localStorage.setItem('dashboard_view_mode', mode)
+  }
 
   useEffect(() => {
     api.get<Customer[]>('/customers')
@@ -77,10 +84,10 @@ export default function Dashboard() {
           </div>
 
           <div className="flex gap-1" style={{ backgroundColor: 'var(--color-surface)', padding: '4px', borderRadius: '4px' }}>
-            <button className={`btn btn--ghost btn--icon btn--sm ${viewMode === 'grid' ? 'bg-surface-hover' : ''}`} onClick={() => setViewMode('grid')}>
+            <button className={`btn btn--ghost btn--icon btn--sm ${viewMode === 'grid' ? 'bg-surface-hover' : ''}`} onClick={() => changeViewMode('grid')}>
               <span className="material-symbols-outlined icon-sm">grid_view</span>
             </button>
-            <button className={`btn btn--ghost btn--icon btn--sm ${viewMode === 'list' ? 'bg-surface-hover' : ''}`} onClick={() => setViewMode('list')}>
+            <button className={`btn btn--ghost btn--icon btn--sm ${viewMode === 'list' ? 'bg-surface-hover' : ''}`} onClick={() => changeViewMode('list')}>
               <span className="material-symbols-outlined icon-sm">list</span>
             </button>
           </div>

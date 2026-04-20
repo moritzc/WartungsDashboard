@@ -6,10 +6,12 @@ const customerRoutes: FastifyPluginAsync = async (app) => {
   // GET /api/customers
   app.get('/', async (req, reply) => {
     requireAuth(req, reply)
+    const { all } = req.query as { all?: string }
     const customers = await prisma.customer.findMany({
+      where: all === 'true' ? undefined : { isActive: true },
       orderBy: { name: 'asc' },
       include: {
-        _count: { select: { devices: { where: { isActive: true } } } },
+        _count: { select: { devices: { where: all === 'true' ? undefined : { isActive: true } } } },
         monthlySheets: {
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
           take: 1,
@@ -24,11 +26,12 @@ const customerRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:id', async (req, reply) => {
     requireAuth(req, reply)
     const { id } = req.params as { id: string }
+    const { all } = req.query as { all?: string }
     const customer = await prisma.customer.findUnique({
       where: { id },
       include: {
-        devices: { 
-          where: { isActive: true }, 
+        devices: {
+          where: all === 'true' ? undefined : { isActive: true },
           orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
           include: { customFields: true }
         },
@@ -105,12 +108,34 @@ const customerRoutes: FastifyPluginAsync = async (app) => {
       update: {},
     })
 
-    // Ensure a DeviceRecord exists for every active device
+    // The last day of the sheet's month (to check overlap)
+    const sheetMonthStart = `${year}-${String(month).padStart(2, '0')}-01`
+    const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+
+    // Fetch ALL devices for the customer (active or inactive)
     const devices = await prisma.device.findMany({
-      where: { customerId, isActive: true },
+      where: { customerId },
     })
 
-    for (const device of devices) {
+    // Only include devices that were active during the sheet's month
+    const relevantDevices = devices.filter((device) => {
+      // Must be non-deleted. Inactive devices are still shown in old sheets if they have date-range overlap.
+      const since = device.activeSince  // "YYYY-MM-DD" or null
+      const until = device.activeUntil  // "YYYY-MM-DD" or null
+
+      // If device has no date bounds, fall back to isActive flag
+      if (!since && !until) return device.isActive
+
+      // Check overlap: device's range [since, until] overlaps sheet's range [sheetMonthStart, nextMonth)
+      // Device is active during the month if:
+      //   - activeSince is null OR activeSince < nextMonth  (device started before month ended)
+      //   - activeUntil is null OR activeUntil >= sheetMonthStart (device wasn't deactivated before month started)
+      const startedBeforeMonthEnds = !since || since < nextMonth
+      const endedAfterMonthStarted = !until || until >= sheetMonthStart
+      return startedBeforeMonthEnds && endedAfterMonthStarted
+    })
+
+    for (const device of relevantDevices) {
       await prisma.deviceRecord.upsert({
         where: { sheetId_deviceId: { sheetId: sheet.id, deviceId: device.id } },
         create: { sheetId: sheet.id, deviceId: device.id },
@@ -119,6 +144,44 @@ const customerRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return reply.status(201).send(sheet)
+  })
+
+  // GET /api/customers/:id/compare?yearA=&monthA=&yearB=&monthB=
+  app.get('/:id/compare', async (req, reply) => {
+    requireAuth(req, reply)
+    const { id: customerId } = req.params as { id: string }
+    const { yearA, monthA, yearB, monthB } = req.query as {
+      yearA: string; monthA: string; yearB: string; monthB: string
+    }
+
+    const [sheetA, sheetB] = await Promise.all([
+      prisma.monthlySheet.findUnique({
+        where: { customerId_year_month: { customerId, year: Number(yearA), month: Number(monthA) } },
+        include: {
+          deviceRecords: {
+            include: {
+              device: { include: { customFields: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } } },
+              customValues: { include: { fieldDef: true } },
+            },
+            orderBy: [{ device: { category: 'asc' } }, { device: { sortOrder: 'asc' } }, { device: { name: 'asc' } }],
+          },
+        },
+      }),
+      prisma.monthlySheet.findUnique({
+        where: { customerId_year_month: { customerId, year: Number(yearB), month: Number(monthB) } },
+        include: {
+          deviceRecords: {
+            include: {
+              device: { include: { customFields: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } } },
+              customValues: { include: { fieldDef: true } },
+            },
+            orderBy: [{ device: { category: 'asc' } }, { device: { sortOrder: 'asc' } }, { device: { name: 'asc' } }],
+          },
+        },
+      }),
+    ])
+
+    return reply.send({ sheetA, sheetB })
   })
 }
 

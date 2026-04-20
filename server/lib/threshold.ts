@@ -38,11 +38,13 @@ export function evaluateNumeric(value: number, thresholds: ThresholdValues): Fie
 }
 
 // ─── Evaluate a date string (YYYY-MM-DD) against age thresholds ──────────────
-export function evaluateDateAge(dateStr: string, thresholds: ThresholdValues): FieldStatus {
+// referenceDate: if provided, use this as "now" instead of Date.now() (for historical sheets)
+export function evaluateDateAge(dateStr: string, thresholds: ThresholdValues, referenceDate?: Date): FieldStatus {
   const date = new Date(dateStr)
   if (isNaN(date.getTime())) return 'OK'
 
-  const ageMs = Date.now() - date.getTime()
+  const refTime = referenceDate ? referenceDate.getTime() : Date.now()
+  const ageMs = refTime - date.getTime()
   const ageDays = ageMs / (1000 * 60 * 60 * 24)
 
   const { errorOlderThanDays, warnOlderThanDays } = thresholds
@@ -69,6 +71,7 @@ export async function computeRecordStatus(
   },
   deviceId: string,
   customerId: string,
+  referenceDate?: Date,
 ): Promise<FieldStatus> {
   const statuses: FieldStatus[] = []
 
@@ -81,7 +84,7 @@ export async function computeRecordStatus(
   // lastUpdateDate
   if (record.lastUpdateDate) {
     const t = await resolveThreshold('lastUpdateDate', deviceId, customerId)
-    statuses.push(evaluateDateAge(record.lastUpdateDate, t))
+    statuses.push(evaluateDateAge(record.lastUpdateDate, t, referenceDate))
   }
 
   // eventlogs — if not OK, it's a warning (user should add a comment)
@@ -104,7 +107,7 @@ export async function computeRecordStatus(
           statuses.push(evaluateNumeric(num, t))
         }
       } else if (cv.fieldDef.dataType === 'DATE' && cond['olderThanDays']) {
-        statuses.push(evaluateDateAge(cv.value, { warnOlderThanDays: cond['olderThanDays'] }))
+        statuses.push(evaluateDateAge(cv.value, { warnOlderThanDays: cond['olderThanDays'] }, referenceDate))
       }
     } catch {
       // Invalid JSON in warnCondition — skip

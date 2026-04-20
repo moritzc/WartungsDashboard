@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { User } from '../types'
 
 interface AuthState {
@@ -8,13 +7,10 @@ interface AuthState {
   isAdmin: () => boolean
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      setUser: (user) => set({ user }),
-      isAdmin: () => get().user?.role === 'ADMIN',
-    }),
-    { name: 'auth-store' },
-  ),
-)
+// No persistence — the server session cookie is the source of truth.
+// Persisting user to localStorage caused a flash of authenticated state on logout.
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  user: null,
+  setUser: (user) => set({ user }),
+  isAdmin: () => get().user?.role === 'ADMIN',
+}))

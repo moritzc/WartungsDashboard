@@ -36,6 +36,8 @@ export interface Device {
   isActive: boolean
   sortOrder: number
   notes: string | null
+  activeSince: string | null
+  activeUntil: string | null
   createdAt: string
   customFields?: CustomFieldDef[]
   thresholdOverrides?: ThresholdOverride[]
@@ -74,12 +76,14 @@ export interface DeviceRecord {
 
 export interface CustomFieldDef {
   id: string
-  category: DeviceCategory | null
+  categories: string | null // JSON array string: e.g. '["NAS","FIREWALL"]' | null = all
+  /** @deprecated use categories */ category?: string | null
   name: string
   unit: string | null
   dataType: FieldDataType
   selectOptions: string | null // JSON string: string[]
   warnCondition: string | null // JSON string: { lt?: number; gt?: number; olderThanDays?: number }
+  errorCondition: string | null // JSON string: same format, triggers ERROR instead of WARNING
   isRequired: boolean
   sortOrder: number
   isActive: boolean

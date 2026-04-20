@@ -58,6 +58,10 @@ model Device {
   sortOrder Int      @default(0)
   notes     String?
 
+  // Date range during which this device is active (null = no bound)
+  activeSince String? // ISO date string "YYYY-MM-DD"
+  activeUntil String? // ISO date string "YYYY-MM-DD"
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -122,14 +126,16 @@ model DeviceRecord {
 model CustomFieldDef {
   id       String  @id @default(cuid())
 
-  // When deviceId is null, restrict to a device category
-  category String? // SERVER | NAS | FIREWALL | UPS | CUSTOM | null = all
+  // JSON array of categories this field applies to. null = all categories.
+  // Example: ["NAS", "FIREWALL"] or ["SERVER"]
+  categories String? // JSON: string[] | null = all
 
   name          String
   unit          String? // "GB", "Days", "%", etc.
   dataType      String  @default("TEXT") // TEXT | NUMBER | BOOLEAN | DATE | SELECT
   selectOptions String? // JSON: ["Option A", "Option B"]
   warnCondition String? // JSON: { "lt": 50 } | { "gt": 90 } | { "olderThanDays": 40 }
+  errorCondition String? // JSON: same format as warnCondition but for error level
   isRequired    Boolean @default(false)
   sortOrder     Int     @default(0)
   isActive      Boolean @default(true)

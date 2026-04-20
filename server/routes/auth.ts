@@ -36,6 +36,8 @@ const authRoutes: FastifyPluginAsync = async (app) => {
   // POST /api/auth/logout
   app.post('/logout', async (req, reply) => {
     await req.session.destroy()
+    // Also explicitly expire the cookie so the browser stops sending it
+    reply.clearCookie('sessionId', { path: '/' })
     return reply.send({ ok: true })
   })
 

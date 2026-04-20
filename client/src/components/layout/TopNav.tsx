@@ -7,9 +7,14 @@ export default function TopNav() {
   const { user, setUser } = useAuthStore()
 
   const handleLogout = async () => {
-    await api.post('/auth/logout')
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // If server call fails, still clear client state
+    }
     setUser(null)
-    window.location.href = '/'
+    // No need to touch localStorage; persist was removed from the store.
+    // App.tsx will show the login screen as soon as user===null.
   }
 
   const toggleLang = () => {

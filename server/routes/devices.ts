@@ -21,7 +21,7 @@ const deviceRoutes: FastifyPluginAsync = async (app) => {
   // POST /api/devices — create device under a customer
   app.post('/', async (req, reply) => {
     requireAdmin(req, reply)
-    const { customerId, name, hostname, category, sortOrder, notes, customFieldIds } = req.body as {
+    const { customerId, name, hostname, category, sortOrder, notes, customFieldIds, activeSince, activeUntil } = req.body as {
       customerId: string
       name: string
       hostname?: string
@@ -29,6 +29,8 @@ const deviceRoutes: FastifyPluginAsync = async (app) => {
       sortOrder?: number
       notes?: string
       customFieldIds?: string[]
+      activeSince?: string | null
+      activeUntil?: string | null
     }
     if (!customerId || !name) return reply.status(400).send({ error: 'customerId and name required' })
 
@@ -40,6 +42,8 @@ const deviceRoutes: FastifyPluginAsync = async (app) => {
         category: category || 'SERVER',
         sortOrder: sortOrder ?? 0,
         notes: notes || null,
+        activeSince: activeSince || null,
+        activeUntil: activeUntil || null,
         customFields: customFieldIds ? {
           connect: customFieldIds.map((id: string) => ({ id })),
         } : undefined,
@@ -52,7 +56,7 @@ const deviceRoutes: FastifyPluginAsync = async (app) => {
   app.put('/:id', async (req, reply) => {
     requireAdmin(req, reply)
     const { id } = req.params as { id: string }
-    const { name, hostname, category, sortOrder, notes, isActive, customFieldIds } = req.body as {
+    const { name, hostname, category, sortOrder, notes, isActive, customFieldIds, activeSince, activeUntil } = req.body as {
       name?: string
       hostname?: string
       category?: string
@@ -60,6 +64,8 @@ const deviceRoutes: FastifyPluginAsync = async (app) => {
       notes?: string
       isActive?: boolean
       customFieldIds?: string[]
+      activeSince?: string | null
+      activeUntil?: string | null
     }
     const data: Record<string, unknown> = {}
     if (name !== undefined) data.name = name
@@ -68,6 +74,8 @@ const deviceRoutes: FastifyPluginAsync = async (app) => {
     if (sortOrder !== undefined) data.sortOrder = sortOrder
     if (notes !== undefined) data.notes = notes
     if (isActive !== undefined) data.isActive = isActive
+    if (activeSince !== undefined) data.activeSince = activeSince || null
+    if (activeUntil !== undefined) data.activeUntil = activeUntil || null
     if (customFieldIds !== undefined) {
       data.customFields = {
         set: customFieldIds.map((id: string) => ({ id })),
