@@ -8,11 +8,8 @@ services:
       - "3067:3067"
     volumes:
       - db_data:/app/data
-    environment:
-      - DATABASE_URL=file:/app/data/wartung.db
-      - SESSION_SECRET=change_this_to_a_long_random_secret_in_production
-      - NODE_ENV=production
-      - PORT=3067
+    env_file:
+      - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3067/api/health"]

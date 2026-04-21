@@ -13,7 +13,7 @@
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
-    "db:seed": "tsx server/seed.ts"
+    "db:seed": "node dist/server/seed.js"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
