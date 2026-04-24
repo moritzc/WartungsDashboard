@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../hooks/useApi'
 import { useAuthStore } from '../stores/useAuthStore'
 import type { MonthlySheet, DeviceRecord, Comment, DeviceCategory, CommentSeverity, GlobalThreshold, ThresholdOverride } from '../types'
+import { formatDateDDMMYYYY } from '../utils/date'
 
 // ─── Reference date for threshold evaluation ──────────────────────────────────
 // When viewing an old sheet, use the sheet's maintenanceDate as "today" so thresholds
@@ -134,18 +135,20 @@ function CommentDrawer({
   const [comments, setComments] = useState<Comment[]>(record.comments)
   const [text, setText] = useState('')
   const [severity, setSeverity] = useState<CommentSeverity>('INFO')
+  const [persistent, setPersistent] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const addComment = async () => {
     if (!text.trim()) return
     setSaving(true)
     try {
-      const c = await api.post<Comment>(`/comments/record/${record.id}`, { text, severity })
+      const c = await api.post<Comment>(`/comments/record/${record.id}`, { text, severity, persistent })
       const updated = [...comments, c]
       setComments(updated)
       onUpdate(record.id, updated)
       setText('')
       setSeverity('INFO')
+      setPersistent(false)
     } finally {
       setSaving(false)
     }
@@ -199,12 +202,15 @@ function CommentDrawer({
                   <span className={`badge badge--${c.severity === 'CRITICAL' ? 'critical' : c.severity === 'WARNING' ? 'warning' : 'neutral'}`}>
                     {c.severity}
                   </span>
-                  <span>{new Date(c.createdAt).toLocaleDateString()}</span>
+                  <span>{formatDateDDMMYYYY(c.createdAt)}</span>
                   {c.resolved && (
                     <span className="badge badge--ok">
                       <span className="material-symbols-outlined icon-sm">check</span>
                       {t('comments.resolved')}
                     </span>
+                  )}
+                  {c.persistent && (
+                    <span className="badge badge--info">{t('comments.persistent', 'Persistent')}</span>
                   )}
                 </div>
                 <div className="comment-item__text">{c.text}</div>
@@ -214,6 +220,15 @@ function CommentDrawer({
                       {c.resolved ? 'undo' : 'check'}
                     </span>
                     {c.resolved ? t('comments.unresolve') : t('comments.resolve')}
+                  </button>
+                  <button className="btn btn--ghost btn--sm" onClick={async () => {
+                    const updated = await api.put<Comment>(`/comments/${c.id}`, { persistent: !c.persistent })
+                    const list = comments.map((x) => (x.id === c.id ? updated : x))
+                    setComments(list)
+                    onUpdate(record.id, list)
+                  }}>
+                    <span className="material-symbols-outlined icon-sm">{c.persistent ? 'label_off' : 'label'}</span>
+                    {c.persistent ? t('comments.unmarkPersistent', 'Unset persistent') : t('comments.markPersistent', 'Mark persistent')}
                   </button>
                   <button
                     className="btn btn--ghost btn--sm"
@@ -240,6 +255,14 @@ function CommentDrawer({
               <option value="CRITICAL">{t('common.critical')}</option>
             </select>
           </div>
+          <label className="checkbox-row mb-2">
+            <input
+              type="checkbox"
+              checked={persistent}
+              onChange={(e) => setPersistent(e.target.checked)}
+            />
+            {t('comments.markPersistent', 'Mark persistent')}
+          </label>
           <div className="flex gap-2">
             <textarea
               className="textarea flex-1"
@@ -595,7 +618,7 @@ function GhostServerRow({
       <td>{record.uptimeDays ?? '—'}</td>
       <td>{record.diskFreeGB != null ? record.diskFreeGB : '—'}</td>
       <td style={{ textAlign: 'center' }}>{record.eventlogsOk == null ? '—' : record.eventlogsOk ? '✓' : '✗'}</td>
-      <td>{record.lastUpdateDate ?? '—'}</td>
+      <td>{formatDateDDMMYYYY(record.lastUpdateDate)}</td>
       {customFieldDefs.map((fd) => (
         <td key={fd.id}>{deviceFieldIds.has(fd.id) ? (fd.dataType === 'BOOLEAN' ? (getCV(fd.id) === 'true' ? '✓' : '✗') : getCV(fd.id) || '—') : '—'}</td>
       ))}
@@ -708,6 +731,7 @@ export default function MaintenanceSheet() {
   const [prevSheet, setPrevSheet] = useState<MonthlySheet | null>(null)
   const [showPrev, setShowPrev] = useState(false)
   const [loadingPrev, setLoadingPrev] = useState(false)
+  const [dirtyTick, setDirtyTick] = useState(0)
 
   // Dirty tracking: recordId -> patch
   const dirty = useRef<Map<string, Record<string, unknown>>>(new Map())
@@ -824,6 +848,7 @@ export default function MaintenanceSheet() {
     }),
       }
     })
+    setDirtyTick((v) => v + 1)
   }, [])
 
   const handleSheetUpdate = async (patch: Partial<MonthlySheet>) => {
@@ -831,20 +856,25 @@ export default function MaintenanceSheet() {
     await api.patch(`/sheets/${sheet!.id}`, patch)
   }
 
-  const doSaveAll = async () => {
-    if (dirty.current.size === 0) return
+  const doSaveAll = async (recordIds?: string[]) => {
+    const entries = Array.from(dirty.current.entries())
+    const filtered = recordIds
+      ? entries.filter(([recordId]) => recordIds.includes(recordId))
+      : entries
+    if (filtered.length === 0) return
     setSaving(true)
     setSaved(false)
     try {
-      const records = Array.from(dirty.current.entries()).map(([recordId, patch]) => ({
+      const records = filtered.map(([recordId, patch]) => ({
         recordId,
         ...patch,
       }))
       await api.post('/records/batch', { records })
-      dirty.current.clear()
+      for (const [recordId] of filtered) dirty.current.delete(recordId)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-      await loadSheet()
+      const refreshed = await api.get<MonthlySheet>(`/sheets/${sheetId}`)
+      setSheet(refreshed)
     } finally {
       setSaving(false)
     }
@@ -853,6 +883,15 @@ export default function MaintenanceSheet() {
   const handleSaveAll = async () => {
     await doSaveAll()
   }
+
+  useEffect(() => {
+    if (!sheetId || dirty.current.size === 0) return
+    const timeout = window.setTimeout(() => {
+      const ids = Array.from(dirty.current.keys())
+      void doSaveAll(ids)
+    }, 700)
+    return () => window.clearTimeout(timeout)
+  }, [dirtyTick, sheetId])
 
   // Navigation guard: intercept react-router navigate
   const guardedNavigate = (to: string) => {
@@ -921,8 +960,11 @@ export default function MaintenanceSheet() {
               className="input" 
               type="text" 
               value={sheet.technicianName ?? ''}
-              onChange={(e) => setSheet(s => s ? { ...s, technicianName: e.target.value } : s)}
-              onBlur={(e) => handleSheetUpdate({ technicianName: e.target.value || null })}
+              onChange={(e) => {
+                const value = e.target.value
+                setSheet((s) => s ? { ...s, technicianName: value } : s)
+                void handleSheetUpdate({ technicianName: value || null })
+              }}
               placeholder={t('sheet.technicianPlaceholder', 'Who checked the servers?')}
             />
           </div>
@@ -932,8 +974,11 @@ export default function MaintenanceSheet() {
               className="input" 
               type="date" 
               value={sheet.maintenanceDate ?? ''}
-              onChange={(e) => setSheet(s => s ? { ...s, maintenanceDate: e.target.value } : s)}
-              onBlur={(e) => handleSheetUpdate({ maintenanceDate: e.target.value || null })}
+              onChange={(e) => {
+                const value = e.target.value
+                setSheet((s) => s ? { ...s, maintenanceDate: value } : s)
+                void handleSheetUpdate({ maintenanceDate: value || null })
+              }}
             />
           </div>
         </div>
