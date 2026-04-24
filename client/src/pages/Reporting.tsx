@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../hooks/useApi'
 import type { Customer, MonthlySheet, Comment, CommentSeverity, DeviceRecord } from '../types'
+import { formatDateDDMMYYYY } from '../utils/date'
 
 const SEVERITIES: CommentSeverity[] = ['INFO', 'WARNING', 'CRITICAL']
 
@@ -9,8 +10,9 @@ const SEVERITIES: CommentSeverity[] = ['INFO', 'WARNING', 'CRITICAL']
 function CompareView({ customerId, customers }: { customerId: string; customers: Customer[] }) {
   const { t } = useTranslation()
   const now = new Date()
+  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const [yearA, setYearA] = useState(now.getFullYear())
-  const [monthA, setMonthA] = useState(now.getMonth()) // previous month
+  const [monthA, setMonthA] = useState(previous.getMonth() + 1)
   const [yearB, setYearB] = useState(now.getFullYear())
   const [monthB, setMonthB] = useState(now.getMonth() + 1) // current month
   const [loading, setLoading] = useState(false)
@@ -37,7 +39,7 @@ function CompareView({ customerId, customers }: { customerId: string; customers:
       case 'uptimeDays': return record.uptimeDays != null ? String(record.uptimeDays) : '—'
       case 'diskFreeGB': return record.diskFreeGB != null ? `${record.diskFreeGB} GB` : '—'
       case 'eventlogsOk': return record.eventlogsOk == null ? '—' : record.eventlogsOk ? '✓ OK' : '✗ Issues'
-      case 'lastUpdateDate': return record.lastUpdateDate ?? '—'
+      case 'lastUpdateDate': return formatDateDDMMYYYY(record.lastUpdateDate)
       default: return '—'
     }
   }
@@ -252,8 +254,14 @@ export default function Reporting() {
   const [selectedCustomerId, setSelectedCustomerId] = useState('ALL')
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
+  const [fromYear, setFromYear] = useState<number>(new Date().getFullYear())
+  const [fromMonth, setFromMonth] = useState<number>(new Date().getMonth() + 1)
+  const [toYear, setToYear] = useState<number>(new Date().getFullYear())
+  const [toMonth, setToMonth] = useState<number>(new Date().getMonth() + 1)
+  const [useRange, setUseRange] = useState(false)
   const [severityFilter, setSeverityFilter] = useState('')
   const [showResolved, setShowResolved] = useState(false)
+  const [openOnly, setOpenOnly] = useState(false)
   const [comments, setComments] = useState<Comment[]>([])
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<'comments' | 'compare'>('comments')
@@ -283,18 +291,26 @@ export default function Reporting() {
     setLoading(true)
     const params = new URLSearchParams()
     if (selectedCustomerId) params.set('customerId', selectedCustomerId)
-    params.set('year', selectedYear.toString())
-    params.set('month', selectedMonth.toString())
+    if (useRange) {
+      params.set('fromYear', fromYear.toString())
+      params.set('fromMonth', fromMonth.toString())
+      params.set('toYear', toYear.toString())
+      params.set('toMonth', toMonth.toString())
+    } else {
+      params.set('year', selectedYear.toString())
+      params.set('month', selectedMonth.toString())
+    }
     if (severityFilter) params.set('severity', severityFilter)
-    if (!showResolved) params.set('resolved', 'false')
+    if (!showResolved || openOnly) params.set('resolved', 'false')
     
     api.get<Comment[]>(`/comments/export?${params}`)
       .then(setComments)
       .finally(() => setLoading(false))
-  }, [selectedCustomerId, selectedYear, selectedMonth, severityFilter, showResolved, activeTab])
+  }, [selectedCustomerId, selectedYear, selectedMonth, severityFilter, showResolved, activeTab, useRange, fromYear, fromMonth, toYear, toMonth, openOnly])
 
   const customer = customers.find((c) => c.id === selectedCustomerId)
   const monthLabel = `${t(`months.${selectedMonth}` as Parameters<typeof t>[0])} ${selectedYear}`
+  const rangeLabel = `${t(`months.${fromMonth}` as Parameters<typeof t>[0])} ${fromYear} - ${t(`months.${toMonth}` as Parameters<typeof t>[0])} ${toYear}`
 
   // Group components by Customer Name -> Device Name
   type GroupData = Record<string, Record<string, { deviceName: string; category: string; items: Comment[] }>>
@@ -317,6 +333,15 @@ export default function Reporting() {
   )
 
   const criticalCount = comments.filter((c) => c.severity === 'CRITICAL').length
+  const openCount = comments.filter((c) => !c.resolved).length
+
+  const loadPreviousMonthSummary = () => {
+    const base = new Date(selectedYear, selectedMonth - 1, 1)
+    const prev = new Date(base.getFullYear(), base.getMonth() - 1, 1)
+    setUseRange(false)
+    setSelectedYear(prev.getFullYear())
+    setSelectedMonth(prev.getMonth() + 1)
+  }
 
   return (
     <div className="page">
@@ -355,7 +380,7 @@ export default function Reporting() {
             <span className="material-symbols-outlined icon-sm">
               {tab === 'comments' ? 'chat_bubble_outline' : 'compare_arrows'}
             </span>
-            {tab === 'comments' ? 'Activity Comments' : 'Compare Months'}
+            {tab === 'comments' ? t('reporting.activityComments', 'Activity Comments') : t('reporting.compareMonths', 'Compare Months')}
           </button>
         ))}
       </div>
@@ -406,6 +431,50 @@ export default function Reporting() {
                   ))}
                 </select>
               </div>
+              <div className="field">
+                <label className="field__label">&nbsp;</label>
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={useRange} onChange={(e) => setUseRange(e.target.checked)} />
+                  {t('reporting.useRange', 'Use timespan')}
+                </label>
+              </div>
+
+              {useRange && (
+                <>
+                  <div className="field">
+                    <label className="field__label">{t('reporting.from', 'From')}</label>
+                    <div className="flex gap-2">
+                      <select className="select" value={fromYear} onChange={(e) => setFromYear(Number(e.target.value))}>
+                        {[0, 1, 2, 3].map((offset) => {
+                          const y = new Date().getFullYear() - offset
+                          return <option key={y} value={y}>{y}</option>
+                        })}
+                      </select>
+                      <select className="select" value={fromMonth} onChange={(e) => setFromMonth(Number(e.target.value))}>
+                        {Array.from({ length: 12 }).map((_, i) => (
+                          <option key={i + 1} value={i + 1}>{t(`months.${i + 1}` as Parameters<typeof t>[0])}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label className="field__label">{t('reporting.to', 'To')}</label>
+                    <div className="flex gap-2">
+                      <select className="select" value={toYear} onChange={(e) => setToYear(Number(e.target.value))}>
+                        {[0, 1, 2, 3].map((offset) => {
+                          const y = new Date().getFullYear() - offset
+                          return <option key={y} value={y}>{y}</option>
+                        })}
+                      </select>
+                      <select className="select" value={toMonth} onChange={(e) => setToMonth(Number(e.target.value))}>
+                        {Array.from({ length: 12 }).map((_, i) => (
+                          <option key={i + 1} value={i + 1}>{t(`months.${i + 1}` as Parameters<typeof t>[0])}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="field">
                 <label className="field__label">{t('reporting.filterSeverity')}</label>
@@ -426,9 +495,24 @@ export default function Reporting() {
                   {t('reporting.showResolved')}
                 </label>
               </div>
+              <div className="field">
+                <label className="field__label">&nbsp;</label>
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} />
+                  {t('reporting.openTasksOnly', 'Open tasks only')}
+                </label>
+              </div>
             </>
           )}
         </div>
+        {activeTab === 'comments' && (
+          <div className="flex gap-2 mt-4">
+            <button className="btn btn--ghost btn--sm" onClick={loadPreviousMonthSummary}>
+              <span className="material-symbols-outlined icon-sm">summarize</span>
+              {t('reporting.prevMonthSummary', 'Summary of all comments from previous month')}
+            </button>
+          </div>
+        )}
       </div>
 
       {activeTab === 'compare' ? (
@@ -439,8 +523,9 @@ export default function Reporting() {
           {comments.length > 0 && (
             <div className="flex-center gap-4 mb-6">
               <span className="badge badge--neutral">
-                {t('reporting.totalComments', { count: comments.length })}
+                {t('reporting.totalComments', { count: comments.length })} · {useRange ? rangeLabel : monthLabel}
               </span>
+              <span className="badge badge--neutral">{t('reporting.openCount', { count: openCount })}</span>
               {criticalCount > 0 && (
                 <span className="badge badge--critical">
                   <span className="material-symbols-outlined icon-sm">error</span>
@@ -506,7 +591,7 @@ export default function Reporting() {
                         {group.items.map((c) => (
                           <tr key={c.id} style={c.resolved ? { opacity: 0.6 } : undefined}>
                             <td className="text-muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                              {new Date(c.createdAt).toLocaleDateString()}
+                              {formatDateDDMMYYYY(c.createdAt)}
                             </td>
                             <td>{c.text}</td>
                             <td>

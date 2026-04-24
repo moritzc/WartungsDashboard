@@ -37,6 +37,50 @@ const sheetRoutes: FastifyPluginAsync = async (app) => {
     })
 
     if (!sheet) return reply.status(404).send({ error: 'Sheet not found' })
+
+    // Carry unresolved persistent comments from earlier sheets onto this month's records.
+    if (sheet.deviceRecords.length > 0) {
+      const carryOver = await prisma.comment.findMany({
+        where: {
+          persistent: true,
+          resolved: false,
+          record: {
+            deviceId: { in: sheet.deviceRecords.map((r) => r.deviceId) },
+            sheet: {
+              customerId: sheet.customerId,
+              OR: [
+                { year: { lt: sheet.year } },
+                { year: sheet.year, month: { lt: sheet.month } },
+              ],
+            },
+          },
+        },
+        include: {
+          record: {
+            select: {
+              deviceId: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      })
+
+      const commentsByDevice = new Map<string, typeof carryOver>()
+      for (const c of carryOver) {
+        const arr = commentsByDevice.get(c.record.deviceId) ?? []
+        arr.push(c)
+        commentsByDevice.set(c.record.deviceId, arr)
+      }
+
+      sheet.deviceRecords = sheet.deviceRecords.map((r) => {
+        const inherited = commentsByDevice.get(r.deviceId) ?? []
+        if (!inherited.length) return r
+        const seen = new Set(r.comments.map((c) => c.id))
+        const merged = [...r.comments, ...inherited.filter((c) => !seen.has(c.id))]
+        return { ...r, comments: merged }
+      })
+    }
+
     return reply.send(sheet)
   })
 
