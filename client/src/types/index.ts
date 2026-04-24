@@ -103,6 +103,7 @@ export interface Comment {
   recordId: string
   text: string
   severity: CommentSeverity
+  persistent: boolean
   resolved: boolean
   createdAt: string
   updatedAt: string

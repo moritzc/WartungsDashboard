@@ -215,6 +215,7 @@ model Comment {
 
   text     String
   severity String  @default("INFO") // INFO | WARNING | CRITICAL
+  persistent Boolean @default(false) // carries over to future months until resolved
   resolved Boolean @default(false)
 
   createdAt DateTime @default(now())
